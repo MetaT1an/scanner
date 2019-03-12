@@ -4,6 +4,7 @@ import time
 import threading
 
 import settings
+from mail import sender
 
 from requests.packages.urllib3.exceptions import InsecureRequestWarning
 
@@ -86,7 +87,7 @@ class Scanner(object):
 
         print("[redis_thread] save to redis")
 
-    def html_report(self):
+    def html_report(self, email_addr):
 
         file_api = self.base_url + "/scans/{0}/export".format(self.scan_id)
         format_data = {
@@ -102,10 +103,8 @@ class Scanner(object):
         report_url = self.base_url + "/scans/{0}/export/{1}/download".format(self.scan_id, file_id)
         report_file = requests.get(report_url, headers=self.get_header(), verify=False)
 
-        # to write the content into a html-format file
-        with open("/tmp/report_{0}.html".format(self.scan_id), "wb") as report:
-            report.write(report_file.content)
-        print("[report_thread]report downloaded")
+        # to send the content as an attachment via email
+        sender.send_as_file(email_addr, report_file.content, file_name="report_{0}.html".format(self.scan_id))
 
     """
     name: name of the scan
@@ -113,7 +112,7 @@ class Scanner(object):
     description: the description of the scan
     @:return scan info dict to store in redis
     """
-    def scan_task(self, name, target, policy_name, description=None):
+    def scan_task(self, name, target, policy_name, email_addr, description=None):
         create_api = self.base_url + "/scans"
 
         # 1. get policy id via given policy name
@@ -142,7 +141,7 @@ class Scanner(object):
         if self.scan_status():
             redis_thread = threading.Thread(target=self.save_to_redis, args=(info_dict,))
             redis_thread.start()
-            report_thread = threading.Thread(target=self.html_report)
+            report_thread = threading.Thread(target=self.html_report, args=(email_addr,))
             report_thread.start()
 
             redis_thread.join()
@@ -168,6 +167,6 @@ class Scanner(object):
 
 if __name__ == '__main__':
     scanner = Scanner()
-    data = scanner.scan_task("2019-03-12 10:48:30", "192.168.2.10", "ubuntu", "launch from console")
+    data = scanner.scan_task("2019-03-12 10:48:30", "192.168.2.10", "ubuntu", "tyc896@qq.com", "launch from console")
     # scanner.plugin_test()
     print(data)
