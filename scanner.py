@@ -1,7 +1,9 @@
 import requests
 import json
-import settings
 import time
+import threading
+
+import settings
 
 from requests.packages.urllib3.exceptions import InsecureRequestWarning
 
@@ -18,17 +20,17 @@ class Scanner(object):
 
     def get_header(self):
         if not self.token:
-            api = self.base_url + "/session"
+            session_api = self.base_url + "/session"
             user_info = {
                 'username': self.username,
                 'password': self.password
             }
-            r = requests.post(api, data=user_info, verify=False)
+            r = requests.post(session_api, data=user_info, verify=False)
             if r.status_code == 200:
                 self.token = r.json()['token']
             else:
                 print("[login] login error!")
-                return
+                return None
 
         header = {      # generate header info
             'X-Cookie': 'token={0}'.format(self.token),
@@ -38,6 +40,7 @@ class Scanner(object):
 
     def scan_status(self):
         status_api = self.base_url + "/scans/{scan_id}".format(scan_id=self.scan_id)
+        status = False
 
         while True:
             time.sleep(10)
@@ -48,55 +51,67 @@ class Scanner(object):
                 print("[scan status]", status)
 
                 if status == "completed":
-                    return True
-                else:
-                    continue
+                    status = True
+                    break
 
-        return False
+        return status
 
-    def save_to_redis(self):
-        # 凑成一个字典，返回
+    def save_to_redis(self, info_dict):
         details_api = self.base_url + "/scans/{0}".format(self.scan_id)
         r = requests.get(details_api, headers=self.get_header(), verify=False)
 
-        hosts_dict = r.json()['hosts'][0]
-        critical_num = hosts_dict['critical']
-        high_num = hosts_dict['high']
-        medium_num = hosts_dict['medium']
-        low_num = hosts_dict['low']
-        info_num = hosts_dict['info']
-        print(critical_num, high_num, medium_num, low_num, info_num)
+        # to generate an info dict via response
+        hosts_dict, detail_dict = r.json()['hosts'][0], r.json()['info']
 
-        print("[redis_thread] sava to redis")
-        pass
+        info_dict['vulns'], info_dict['details'] = {}, {}
+
+        info_dict['vulns']['critical_num'] = hosts_dict['critical']
+        info_dict['vulns']['high_num'] = hosts_dict['high']
+        info_dict['vulns']['medium_num'] = hosts_dict['medium']
+        info_dict['vulns']['low_num'] = hosts_dict['low']
+        info_dict['vulns']['info_num'] = hosts_dict['info']
+
+        info_dict['details']['name'] = detail_dict['name']
+        info_dict['details']['status'] = detail_dict['status']
+        info_dict['details']['policy'] = detail_dict['policy']
+
+        # generate time information
+        start_time, end_time = detail_dict['scan_start'], detail_dict['scan_end']
+        elapse = end_time - start_time
+
+        info_dict['details']['start'] = time.strftime("%Y-%m-%d %H:%M:%S", time.gmtime(start_time))
+        info_dict['details']['end'] = time.strftime("%Y-%m-%d %H:%M:%S", time.gmtime(end_time))
+        info_dict['details']['elapse'] = "{0}min {1}s".format(elapse // 60, elapse % 60)
+        info_dict['details']['target'] = detail_dict['targets']
+
+        print("[redis_thread] save to redis")
 
     def html_report(self):
 
         file_api = self.base_url + "/scans/{0}/export".format(self.scan_id)
-        format_data = json.dumps({
+        format_data = {
             'format': 'html',
             'chapters': 'vuln_hosts_summary;vuln_by_host'
-            })
+        }
         
-        r = requests.post(file_api, data=format_data, headers=self.get_header(), verify=False)
+        r = requests.post(file_api, data=json.dumps(format_data), headers=self.get_header(), verify=False)
         file_id = r.json()['file']
 
-        # print(file_id)
         time.sleep(2)       # need some time to generate the report
 
         report_url = self.base_url + "/scans/{0}/export/{1}/download".format(self.scan_id, file_id)
         report_file = requests.get(report_url, headers=self.get_header(), verify=False)
 
-        # to write the content into a file
-        with open("report_{0}.html".format(self.scan_id), "wb") as report:
+        # to write the content into a html-format file
+        with open("/tmp/report_{0}.html".format(self.scan_id), "wb") as report:
             report.write(report_file.content)
-
         print("[report_thread]report downloaded")
 
     """
     name: name of the scan
     target: the ip to scan
     description: the description of the scan
+    @:return scan info dict to store in redis
     """
     def scan_task(self, name, target, policy_name, description=None):
         create_api = self.base_url + "/scans"
@@ -117,21 +132,25 @@ class Scanner(object):
             }
         }
 
-        # create a scan task and launch immediately
+        # 3. create a scan task and launch immediately
         r = requests.post(create_api, data=json.dumps(data), headers=self.get_header(), verify=False)
-        scan_id = r.json()['scan']['id']
+        self.scan_id = r.json()['scan']['id']
+        print("[scan task submitted]id: %s" % self.scan_id)
 
-        self.scan_id = scan_id
-        print("[scan task submitted]id: %s" % scan_id)
-
+        # 4. listen until scan completed
+        info_dict = {}
         if self.scan_status():
-            import threading
-            redis_thread = threading.Thread(target=self.save_to_redis)
+            redis_thread = threading.Thread(target=self.save_to_redis, args=(info_dict,))
             redis_thread.start()
-            # self.save_to_redis()      # redis
-            # self.html_report()        # report
             report_thread = threading.Thread(target=self.html_report)
             report_thread.start()
+
+            redis_thread.join()
+            report_thread.join()
+
+            self.token = None
+
+        return info_dict
 
     def get_policy_id(self, policy_name):
         policy_id = None
@@ -147,7 +166,8 @@ class Scanner(object):
         return policy_id
 
 
-scanner = Scanner()
-scanner.scan_task("2019-3-11 22:32:34", "192.168.2.10", "ubuntu", "launch from console")
-# scanner.plugin_test()
-# scanner.save_to_redis()
+if __name__ == '__main__':
+    scanner = Scanner()
+    data = scanner.scan_task("2019-03-12 10:48:30", "192.168.2.10", "ubuntu", "launch from console")
+    # scanner.plugin_test()
+    print(data)
