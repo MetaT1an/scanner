@@ -49,7 +49,7 @@ class Scanner(object):
 
             if r.status_code == 200:
                 status = r.json()['info']['status']
-                print("[scan status]", status)
+                print("[scan status] %s" % status)
 
                 if status == "completed":
                     status = True
