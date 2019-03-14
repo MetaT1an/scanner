@@ -1,3 +1,13 @@
+"""
+celery-task part
+
+please type following command in the same directory with current file:
+
+celery -A celery_task worker -l info
+
+to start listening on the rabbitMQ to wait for tasks
+"""
+
 import celery
 import scanner
 
