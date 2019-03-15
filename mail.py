@@ -1,3 +1,4 @@
+import time
 import smtplib
 from email.mime.text import MIMEText
 from email.mime.multipart import MIMEMultipart
@@ -16,10 +17,13 @@ class Sender(object):
             
             The attachment in this email is a detailed report about your recent scan task(s).
             
-            Have a good day!
+            Best regards.
+            
+            --
+            Yuchen Tian
         """
 
-    def send_as_file(self, receiver, content, file_name):
+    def send_as_file(self, receiver, file_content, file_name):
         msg = MIMEMultipart()
 
         # mail header
@@ -31,24 +35,37 @@ class Sender(object):
         msg.attach(MIMEText(self.main_text, "plain", "utf-8"))
 
         # attachment
-        attachment = MIMEText(content, "base64", "utf-8")
+        attachment = MIMEText(file_content, "base64", "utf-8")
         attachment["Content-Type"] = 'application/octet-stream'
         attachment['Content-Disposition'] = "attachment; filename={0}".format(file_name)
         msg.attach(attachment)
 
-        try:
-            server = smtplib.SMTP()
-            server.connect(self.server)
-            server.login(self.sender, self.key)
-            server.sendmail(self.sender, receiver, msg.as_string())
-            server.quit()
-            print("[email] report was sent")
-        except Exception as e:
-            print("[email] sent error")
-            print(e)
+        if not self.reliable_send(receiver, msg):
+            print("[email] fail to send report")
+
+    def reliable_send(self, receiver, msg):
+        send_num, send_status = 0, False
+        while send_num < 3:
+            try:
+                server = smtplib.SMTP()
+                server.connect(self.server)
+                server.login(self.sender, self.key)
+                server.sendmail(self.sender, receiver, msg.as_string())
+                server.quit()
+                print("[email] report was sent successfully")
+                send_status = True
+                break
+            except Exception as e:
+                print("[email] report-sending error")
+                print(e)
+                print("[email] trying resending after 1 second...")
+                time.sleep(1)
+                send_num += 1
+
+        return send_status
 
 
 sender = Sender()
 
 # test
-# sender.send_as_file("tyc896@qq.com", b'hh', "report.html")
+# sender.send_as_file("tyc896@yeah.net", b'hh', "report.html")
