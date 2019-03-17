@@ -5,7 +5,7 @@ broker_url = "amqp://192.168.2.12"
 backend_url = "redis://192.168.2.12"
 
 app = celery.Celery(broker=broker_url, backend=backend_url)
-ip_list = ["192.168.2.11"]
+ip_list = ["192.168.2.11", "192.168.2.12", "192.168.2.15", "192.168.2.12", "192.168.2.10"]
 task_list = []
 
 for ip in ip_list:
@@ -23,6 +23,7 @@ while task_list:
             # data = task.get()
             # 1. save to mysql: data['details'], data['vulns']
             # 2. email sending: data['report']
+            print("[{0}] done".format(task.get()['details']['target']))
 
         time.sleep(10)
 
