@@ -4,7 +4,6 @@ import time
 import threading
 
 import settings
-from mail import sender
 
 from requests.packages.urllib3.exceptions import InsecureRequestWarning
 
@@ -57,7 +56,7 @@ class Scanner(object):
 
         return status
 
-    def save_to_redis(self, info_dict):
+    def scan_info(self, info_dict):
         details_api = self.base_url + "/scans/{0}".format(self.scan_id)
         r = requests.get(details_api, headers=self.get_header(), verify=False)
 
@@ -85,9 +84,9 @@ class Scanner(object):
         info_dict['details']['elapse'] = "{0}min {1}s".format(elapse // 60, elapse % 60)
         info_dict['details']['target'] = detail_dict['targets']
 
-        print("[redis_thread] save to redis")
+        print("[scan_info] info ready")
 
-    def html_report(self, email_addr):
+    def scan_report(self, report_dict):
 
         file_api = self.base_url + "/scans/{0}/export".format(self.scan_id)
         format_data = {
@@ -103,8 +102,9 @@ class Scanner(object):
         report_url = self.base_url + "/scans/{0}/export/{1}/download".format(self.scan_id, file_id)
         report_file = requests.get(report_url, headers=self.get_header(), verify=False)
 
-        # to send the content as an attachment via email
-        sender.send_as_file(email_addr, report_file.content, file_name="report_{0}.html".format(self.scan_id))
+        report_dict['report'] = report_file.content.decode("utf8")
+
+        print("[scan_report] report ready")
 
     """
     name: name of the scan
@@ -112,7 +112,7 @@ class Scanner(object):
     description: the description of the scan
     @:return scan info dict to store in redis
     """
-    def scan_task(self, name, target, policy_name, email_addr, description=None):
+    def scan_task(self, name, target, policy_name, description=None):
         create_api = self.base_url + "/scans"
 
         # 1. get policy id via given policy name
@@ -137,19 +137,20 @@ class Scanner(object):
         print("[scan task submitted]id: %s" % self.scan_id)
 
         # 4. listen until scan completed
-        info_dict = {}
+        info_dict, report_dict = {}, {}
         if self.scan_status():
-            redis_thread = threading.Thread(target=self.save_to_redis, args=(info_dict,))
-            redis_thread.start()
-            report_thread = threading.Thread(target=self.html_report, args=(email_addr,))
-            report_thread.start()
+            report_thread = threading.Thread(target=self.scan_report, args=(report_dict,))
+            report_thread.start()   # might take longer time
 
-            redis_thread.join()
+            info_thread = threading.Thread(target=self.scan_info, args=(info_dict,))
+            info_thread.start()
+
+            info_thread.join()
             report_thread.join()
 
             self.token = None
 
-        return info_dict
+        return dict(info_dict, **report_dict)       # merge into one
 
     def get_policy_id(self, policy_name):
         policy_id = None
@@ -167,6 +168,6 @@ class Scanner(object):
 
 if __name__ == '__main__':
     scanner = Scanner()
-    data = scanner.scan_task("2019-03-12 10:48:30", "192.168.2.10", "ubuntu", "tyc896@qq.com", "launch from console")
+    data = scanner.scan_task("v1.0", "192.168.2.11", "ubuntu", "test")
     # scanner.plugin_test()
     print(data)
