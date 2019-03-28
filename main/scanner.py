@@ -40,7 +40,7 @@ class Scanner(object):
 
     def scan_status(self):
         status_api = self.base_url + "/scans/{scan_id}".format(scan_id=self.scan_id)
-        status = False
+        _status = False
 
         while True:
             time.sleep(10)
@@ -51,19 +51,20 @@ class Scanner(object):
                 print("[scan status] %s" % status)
 
                 if status == "completed":
-                    status = True
+                    _status = True
                     break
 
-        return status
+        return _status
 
     def scan_info(self, info_dict):
         details_api = self.base_url + "/scans/{0}".format(self.scan_id)
         r = requests.get(details_api, headers=self.get_header(), verify=False)
 
         # to generate an info dict via response
-        hosts_dict, detail_dict = r.json()['hosts'][0], r.json()['info']
+        hosts_dict, detail_dict, vuls_list = r.json()['hosts'][0], r.json()['info'], r.json()['vulnerabilities']
 
         info_dict['vulns'], info_dict['details'] = {}, {}
+        info_dict['vulns']['list'] = []
 
         info_dict['vulns']['critical_num'] = hosts_dict['critical']
         info_dict['vulns']['high_num'] = hosts_dict['high']
@@ -71,9 +72,16 @@ class Scanner(object):
         info_dict['vulns']['low_num'] = hosts_dict['low']
         info_dict['vulns']['info_num'] = hosts_dict['info']
 
+        for vul in vuls_list:
+            info_dict['vulns']['list'].append({
+                'pluginname': vul['plugin_name'],
+                'severity': vul['severity'],
+                'pluginset': vul['plugin_family'],
+                'count': vul['count']
+            })
+
         info_dict['details']['name'] = detail_dict['name']
         info_dict['details']['status'] = detail_dict['status']
-        info_dict['details']['policy'] = detail_dict['policy']
 
         # generate time information
         start_time, end_time = detail_dict['scan_start'], detail_dict['scan_end']
@@ -166,8 +174,8 @@ class Scanner(object):
         return policy_id
 
 
-if __name__ == '__main__':
-    scanner = Scanner()
-    data = scanner.scan_task("v1.0", "192.168.2.11", "ubuntu", "test")
-    # scanner.plugin_test()
-    print(data)
+# if __name__ == '__main__':
+#     scanner = Scanner()
+#     data = scanner.scan_task("v1.0", "192.168.2.10", "ubuntu", "test")
+#     # scanner.plugin_test()
+#     # print(data['vulns'])
