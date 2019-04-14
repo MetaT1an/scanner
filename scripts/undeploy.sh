@@ -3,7 +3,7 @@
 # remove virtual environment
 pipenv --venv
 
-if [[ $? -eq 1 ]];then
+if [[ $? -eq 0 ]];then
     pipenv --rm
 fi
 
