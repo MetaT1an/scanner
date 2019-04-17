@@ -1,10 +1,10 @@
 #!/bin/bash
 
 # remove virtual environment
-~/.local/bin/pipenv --venv
+python3 -m pipenv --venv
 
 if [[ $? -eq 0 ]];then
-    ~/.local/bin/pipenv --rm
+    python3 -m pipenv --rm
 fi
 
 # remove repository, this shell should be executed in the scanner/ directory
