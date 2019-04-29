@@ -9,7 +9,7 @@ if [[ $? -eq 1 ]];then
 fi
 
 # start a celery task in virtual environment in background, thus
-python3 -m pipenv run celery -A celery_task worker -l info --workdir main/ &
+nohup python3 -m pipenv run celery -A celery_task worker -l info --workdir main/ >& /dev/null &
 
 # thanks fabric for making my shell script so ugly!
 # https://github.com/fabric/fabric/issues/1901
